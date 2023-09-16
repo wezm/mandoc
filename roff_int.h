@@ -19,6 +19,7 @@
  */
 
 struct	ohash;
+struct	roffkv2;
 struct	roff_node;
 struct	roff_meta;
 struct	roff;
@@ -81,6 +82,11 @@ void		  roff_node_delete(struct roff_man *, struct roff_node *);
 struct ohash	 *roffhash_alloc(enum roff_tok, enum roff_tok);
 enum roff_tok	  roffhash_find(struct ohash *, const char *, size_t);
 void		  roffhash_free(struct ohash *);
+
+struct ohash	 *roffkvhash_alloc(void);
+struct roffkv2	*	  roffkvhash_find(struct ohash *, const char *, size_t);
+void roffkvhash_insert(struct ohash *, struct roffkv2 *);
+void		  roffkvhash_free(struct ohash *);
 
 enum mandoc_esc	  roff_escape(const char *, const int, const int,
 			int *, int *, int *, int *, int *);

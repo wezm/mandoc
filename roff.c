@@ -70,6 +70,10 @@ struct	roffkv {
 	struct roffstr	 val;
 	struct roffkv	*next; /* next in list */
 };
+struct	roffkv2 {
+    struct roffstr	 val;
+    char	 key[];
+};
 
 /*
  * A single number register as part of a singly-linked list.
@@ -107,6 +111,7 @@ struct	roff {
 	struct ohash	*reqtab; /* request lookup table */
 	struct roffreg	*regtab; /* number registers */
 	struct roffkv	*strtab; /* user-defined strings & macros */
+	struct ohash	*strtab2; /* user-defined strings & macros */
 	struct roffkv	*rentab; /* renamed strings & macros */
 	struct roffkv	*xmbtab; /* multi-byte trans table (`tr') */
 	struct roffstr	*xtab; /* single-byte trans table (`tr') */
@@ -204,6 +209,7 @@ static	void		 roff_expand_patch(struct buf *, int,
 static	void		 roff_free1(struct roff *);
 static	void		 roff_freereg(struct roffreg *);
 static	void		 roff_freestr(struct roffkv *);
+static	void		 roff_freestr2(struct roffkv2 *);
 static	size_t		 roff_getname(struct roff *, char **, int, int);
 static	int		 roff_getnum(const char *, int *, int *, int);
 static	int		 roff_getop(const char *, int *, char *);
@@ -243,6 +249,8 @@ static	void		 roff_setregn(struct roff *, const char *,
 static	void		 roff_setstr(struct roff *,
 				const char *, const char *, int);
 static	void		 roff_setstrn(struct roffkv **, const char *,
+				size_t, const char *, size_t, int);
+static	void		 roff_setstrn2(struct ohash *, const char *,
 				size_t, const char *, size_t, int);
 static	int		 roff_shift(ROFF_ARGS);
 static	int		 roff_so(ROFF_ARGS);
@@ -686,6 +694,70 @@ roffhash_find(struct ohash *htab, const char *name, size_t sz)
 	return req == NULL ? TOKEN_NONE : req->tok;
 }
 
+/* --- key-value table ---------------------------------------------------- */
+
+struct ohash *
+roffkvhash_alloc(void)
+{
+    struct ohash	*htab;
+//    struct roffreq	*req;
+//    enum roff_tok	 tok;
+//    size_t		 sz;
+//    unsigned int	 slot;
+
+    htab = mandoc_malloc(sizeof(*htab));
+    mandoc_ohash_init(htab, 6, offsetof(struct roffkv2, key)); // FIXME: reconsider size = 6
+
+//    for (tok = mintok; tok < maxtok; tok++) {
+//        if (roff_name[tok] == NULL)
+//            continue;
+//        sz = strlen(roff_name[tok]);
+//        req = mandoc_malloc(sizeof(*req) + sz + 1);
+//        req->tok = tok;
+//        memcpy(req->name, roff_name[tok], sz + 1);
+//        slot = ohash_qlookup(htab, req->name);
+//        ohash_insert(htab, slot, req);
+//    }
+    return htab;
+}
+
+void
+roffkvhash_free(struct ohash *htab)
+{
+    struct roffkv2	*kv;
+    unsigned int	 slot;
+
+    if (htab == NULL)
+        return;
+    for (kv = ohash_first(htab, &slot); kv != NULL;
+         kv = ohash_next(htab, &slot))
+        roff_freestr2(kv);
+    ohash_delete(htab);
+    free(htab);
+}
+
+struct roffkv2	*
+roffkvhash_find(struct ohash *htab, const char *name, size_t sz)
+{
+    struct roffkv2	*kv;
+    const char	*end;
+
+    if (sz) {
+        end = name + sz;
+        kv = ohash_find(htab, ohash_qlookupi(htab, name, &end));
+    } else
+        kv = ohash_find(htab, ohash_qlookup(htab, name));
+    return kv;
+}
+
+void
+roffkvhash_insert(struct ohash *htab, struct roffkv2 *kv) {
+    unsigned int slot;
+
+    slot = ohash_qlookup(htab, kv->key);
+    ohash_insert(htab, slot, kv);
+}
+
 /* --- stack of request blocks -------------------------------------------- */
 
 /*
@@ -757,9 +829,11 @@ roff_free1(struct roff *r)
 	r->regtab = NULL;
 
 	roff_freestr(r->strtab);
+	roffkvhash_free(r->strtab2);
 	roff_freestr(r->rentab);
 	roff_freestr(r->xmbtab);
 	r->strtab = r->rentab = r->xmbtab = NULL;
+	r->strtab2 = NULL;
 
 	if (r->xtab)
 		for (i = 0; i < 128; i++)
@@ -772,6 +846,7 @@ void
 roff_reset(struct roff *r)
 {
 	roff_free1(r);
+	r->strtab2 = roffkvhash_alloc();
 	r->options |= MPARSE_COMMENT;
 	r->format = r->options & (MPARSE_MDOC | MPARSE_MAN);
 	r->control = '\0';
@@ -802,6 +877,7 @@ roff_alloc(int options)
 
 	r = mandoc_calloc(1, sizeof(struct roff));
 	r->reqtab = roffhash_alloc(0, ROFF_RENAMED);
+	r->strtab2 = roffkvhash_alloc();
 	r->options = options | MPARSE_COMMENT;
 	r->format = options & (MPARSE_MDOC | MPARSE_MAN);
 	r->mstackpos = -1;
@@ -1456,7 +1532,8 @@ roff_expand(struct roff *r, struct buf *buf, int ln, int pos, char ec)
 			if (iendarg - iarg == 2 &&
 			    buf->buf[iarg] == '.' &&
 			    buf->buf[iarg + 1] == 'T') {
-				roff_setstrn(&r->strtab, ".T", 2, NULL, 0, 0);
+//				roff_setstrn(&r->strtab, ".T", 2, NULL, 0, 0);
+				roff_setstrn2(r->strtab2, ".T", 2, NULL, 0, 0);
 				pos = iend;
 				continue;
 			}
@@ -1998,7 +2075,8 @@ roff_parse(struct roff *r, char *buf, int *pos, int ln, int ppos)
 		*pos = cp - buf;
 	else if (deftype == ROFFDEF_UNDEF) {
 		/* Using an undefined macro defines it to be empty. */
-		roff_setstrn(&r->strtab, mac, maclen, "", 0, 0);
+//		roff_setstrn(&r->strtab, mac, maclen, "", 0, 0);
+		roff_setstrn2(r->strtab2, mac, maclen, "", 0, 0);
 		roff_setstrn(&r->rentab, mac, maclen, NULL, 0, 0);
 	}
 	return t;
@@ -2166,20 +2244,24 @@ roff_block(ROFF_ARGS)
 	 */
 
 	if (tok == ROFF_de || tok == ROFF_dei) {
-		roff_setstrn(&r->strtab, name, namesz, "", 0, 0);
+//		roff_setstrn(&r->strtab, name, namesz, "", 0, 0);
+		roff_setstrn2(r->strtab2, name, namesz, "", 0, 0);
 		roff_setstrn(&r->rentab, name, namesz, NULL, 0, 0);
 	} else if (tok == ROFF_am || tok == ROFF_ami) {
 		deftype = ROFFDEF_ANY;
 		value = roff_getstrn(r, iname, namesz, &deftype);
 		switch (deftype) {  /* Before appending, ... */
 		case ROFFDEF_PRE: /* copy predefined to user-defined. */
-			roff_setstrn(&r->strtab, name, namesz,
+//			roff_setstrn(&r->strtab, name, namesz,
+//			    value, strlen(value), 0);
+			roff_setstrn2(r->strtab2, name, namesz,
 			    value, strlen(value), 0);
 			break;
 		case ROFFDEF_REN: /* call original standard macro. */
 			csz = mandoc_asprintf(&call, ".%.*s \\$* \\\"\n",
 			    (int)strlen(value), value);
-			roff_setstrn(&r->strtab, name, namesz, call, csz, 0);
+//			roff_setstrn(&r->strtab, name, namesz, call, csz, 0);
+			roff_setstrn2(r->strtab2, name, namesz, call, csz, 0);
 			roff_setstrn(&r->rentab, name, namesz, NULL, 0, 0);
 			free(call);
 			break;
@@ -2188,7 +2270,8 @@ roff_block(ROFF_ARGS)
 			roff_setstrn(&r->rentab, rname, rsz, name, namesz, 0);
 			csz = mandoc_asprintf(&call, ".%.*s \\$* \\\"\n",
 			    (int)rsz, rname);
-			roff_setstrn(&r->strtab, name, namesz, call, csz, 0);
+//			roff_setstrn(&r->strtab, name, namesz, call, csz, 0);
+			roff_setstrn2(r->strtab2, name, namesz, call, csz, 0);
 			free(call);
 			free(rname);
 			break;
@@ -2764,7 +2847,9 @@ roff_ds(ROFF_ARGS)
 		string++;
 
 	/* The rest is the value. */
-	roff_setstrn(&r->strtab, name, namesz, string, strlen(string),
+//	roff_setstrn(&r->strtab, name, namesz, string, strlen(string),
+//	    ROFF_as == tok);
+	roff_setstrn2(r->strtab2, name, namesz, string, strlen(string),
 	    ROFF_as == tok);
 	roff_setstrn(&r->rentab, name, namesz, NULL, 0, 0);
 	return ROFF_IGN;
@@ -3195,7 +3280,8 @@ roff_rm(ROFF_ARGS)
 	while (*cp != '\0') {
 		name = cp;
 		namesz = roff_getname(r, &cp, ln, (int)(cp - buf->buf));
-		roff_setstrn(&r->strtab, name, namesz, NULL, 0, 0);
+//		roff_setstrn(&r->strtab, name, namesz, NULL, 0, 0);
+		roff_setstrn2(r->strtab2, name, namesz, NULL, 0, 0);
 		roff_setstrn(&r->rentab, name, namesz, NULL, 0, 0);
 		if (name[namesz] == '\\' || name[namesz] == '\t')
 			break;
@@ -3542,7 +3628,8 @@ roff_als(ROFF_ARGS)
 
 	valsz = mandoc_asprintf(&value, ".%.*s \\$@\\\"\n",
 	    (int)oldsz, oldn);
-	roff_setstrn(&r->strtab, newn, newsz, value, valsz, 0);
+//	roff_setstrn(&r->strtab, newn, newsz, value, valsz, 0);
+	roff_setstrn2(r->strtab2, newn, newsz, value, valsz, 0);
 	roff_setstrn(&r->rentab, newn, newsz, NULL, 0, 0);
 	free(value);
 	return ROFF_IGN;
@@ -3826,25 +3913,31 @@ roff_rn(ROFF_ARGS)
 	value = roff_getstrn(r, oldn, oldsz, &deftype);
 	switch (deftype) {
 	case ROFFDEF_USER:
-		roff_setstrn(&r->strtab, newn, newsz, value, strlen(value), 0);
-		roff_setstrn(&r->strtab, oldn, oldsz, NULL, 0, 0);
+//		roff_setstrn(&r->strtab, newn, newsz, value, strlen(value), 0);
+//		roff_setstrn(&r->strtab, oldn, oldsz, NULL, 0, 0);
+		roff_setstrn2(r->strtab2, newn, newsz, value, strlen(value), 0);
+		roff_setstrn2(r->strtab2, oldn, oldsz, NULL, 0, 0);
 		roff_setstrn(&r->rentab, newn, newsz, NULL, 0, 0);
 		break;
 	case ROFFDEF_PRE:
-		roff_setstrn(&r->strtab, newn, newsz, value, strlen(value), 0);
+//		roff_setstrn(&r->strtab, newn, newsz, value, strlen(value), 0);
+		roff_setstrn2(r->strtab2, newn, newsz, value, strlen(value), 0);
 		roff_setstrn(&r->rentab, newn, newsz, NULL, 0, 0);
 		break;
 	case ROFFDEF_REN:
 		roff_setstrn(&r->rentab, newn, newsz, value, strlen(value), 0);
 		roff_setstrn(&r->rentab, oldn, oldsz, NULL, 0, 0);
-		roff_setstrn(&r->strtab, newn, newsz, NULL, 0, 0);
+//		roff_setstrn(&r->strtab, newn, newsz, NULL, 0, 0);
+		roff_setstrn2(r->strtab2, newn, newsz, NULL, 0, 0);
 		break;
 	case ROFFDEF_STD:
 		roff_setstrn(&r->rentab, newn, newsz, oldn, oldsz, 0);
-		roff_setstrn(&r->strtab, newn, newsz, NULL, 0, 0);
+//		roff_setstrn(&r->strtab, newn, newsz, NULL, 0, 0);
+		roff_setstrn2(r->strtab2, newn, newsz, NULL, 0, 0);
 		break;
 	default:
-		roff_setstrn(&r->strtab, newn, newsz, NULL, 0, 0);
+//		roff_setstrn(&r->strtab, newn, newsz, NULL, 0, 0);
+		roff_setstrn2(r->strtab2, newn, newsz, NULL, 0, 0);
 		roff_setstrn(&r->rentab, newn, newsz, NULL, 0, 0);
 		break;
 	}
@@ -4079,8 +4172,10 @@ roff_setstr(struct roff *r, const char *name, const char *string,
 	size_t	 namesz;
 
 	namesz = strlen(name);
-	roff_setstrn(&r->strtab, name, namesz, string,
-	    string ? strlen(string) : 0, append);
+//	roff_setstrn(&r->strtab, name, namesz, string,
+//	    string ? strlen(string) : 0, append);
+	roff_setstrn2(r->strtab2, name, namesz, string,
+		     string ? strlen(string) : 0, append);
 	roff_setstrn(&r->rentab, name, namesz, NULL, 0, 0);
 }
 
@@ -4156,8 +4251,91 @@ roff_setstrn(struct roffkv **r, const char *name, size_t namesz,
 	n->val.sz = (int)(c - n->val.p);
 }
 
+static void
+roff_setstrn2(struct ohash *r, const char *name, size_t namesz,
+             const char *string, size_t stringsz, int append)
+{
+    struct roffkv2	*n;
+    char		*c;
+    int		 i;
+    size_t		 oldch, newch;
+
+    /* Search for an existing string with the same name. */
+//    n = *r;
+//
+//    while (n && (namesz != n->key.sz ||
+//                 strncmp(n->key.p, name, namesz)))
+//        n = n->next;
+    n = roffkvhash_find(r, name, namesz);
+
+    if (NULL == n) {
+        /* Create a new string table entry. */
+//	sz = strlen(roff_name[tok]);
+	n = mandoc_malloc(sizeof(*n) + namesz + 1);
+//	req->tok = tok;
+	memcpy(n->key, name, namesz);
+	n->key[namesz] = '\0';
+
+//        n = mandoc_malloc(sizeof(struct roffkv));
+//        n->key.p = mandoc_strndup(name, namesz);
+//        n->key.sz = namesz;
+        n->val.p = NULL;
+        n->val.sz = 0;
+//        n->next = NULL;
+        roffkvhash_insert(r, n);
+//        *r = n;
+    } else if (0 == append) {
+        /* string is already in hash table, free it in
+         * preparation for updating.
+         */
+        free(n->val.p);
+        n->val.p = NULL;
+        n->val.sz = 0;
+    }
+
+    if (NULL == string)
+        return;
+
+    /*
+     * One additional byte for the '\n' in multiline mode,
+     * and one for the terminating '\0'.
+     */
+    newch = stringsz + (1 < append ? 2u : 1u);
+
+    if (NULL == n->val.p) {
+        n->val.p = mandoc_malloc(newch);
+        *n->val.p = '\0';
+        oldch = 0;
+    } else {
+        oldch = n->val.sz;
+        n->val.p = mandoc_realloc(n->val.p, oldch + newch);
+    }
+
+    /* Skip existing content in the destination buffer. */
+    c = n->val.p + (int)oldch;
+
+    /* Append new content to the destination buffer. */
+    i = 0;
+    while (i < (int)stringsz) {
+        /*
+         * Rudimentary roff copy mode:
+         * Handle escaped backslashes.
+         */
+        if ('\\' == string[i] && '\\' == string[i + 1])
+            i++;
+        *c++ = string[i++];
+    }
+
+    /* Append terminating bytes. */
+    if (1 < append)
+        *c++ = '\n';
+
+    *c = '\0';
+    n->val.sz = (int)(c - n->val.p);
+}
+
 static const char *
-roff_getstrn(struct roff *r, const char *name, size_t len,
+roff_getstrn_old(struct roff *r, const char *name, size_t len,
     int *deftype)
 {
 	const struct roffkv	*n;
@@ -4242,12 +4420,138 @@ roff_getstrn(struct roff *r, const char *name, size_t len,
 
 		/* Using an undefined string defines it to be empty. */
 
-		roff_setstrn(&r->strtab, name, len, "", 0, 0);
+//		roff_setstrn(&r->strtab, name, len, "", 0, 0);
+//		roff_setstrn2(r->strtab2, name, len, "", 0, 0);
 		roff_setstrn(&r->rentab, name, len, NULL, 0, 0);
 	}
 
 	*deftype = 0;
 	return NULL;
+}
+
+static const char *
+roff_getstrn_new(struct roff *r, const char *name, size_t len,
+		 int *deftype)
+{
+	const struct roffkv	*n;
+	const struct roffkv2	*n2;
+	int			 found, i;
+	enum roff_tok		 tok;
+
+	found = 0;
+	n2 = roffkvhash_find(r->strtab2, name, len);
+	if (n2 != NULL && n2->val.p != NULL) {
+		if (*deftype & ROFFDEF_USER) {
+			*deftype = ROFFDEF_USER;
+			return n2->val.p;
+		} else {
+			found = 1;
+		}
+	}
+//	for (n = r->strtab; n != NULL; n = n->next) {
+//		if (strncmp(name, n->key.p, len) != 0 ||
+//		    n->key.p[len] != '\0' || n->val.p == NULL)
+//			continue;
+//		if (*deftype & ROFFDEF_USER) {
+//			*deftype = ROFFDEF_USER;
+//			return n->val.p;
+//		} else {
+//			found = 1;
+//			break;
+//		}
+//	}
+	for (n = r->rentab; n != NULL; n = n->next) {
+		if (strncmp(name, n->key.p, len) != 0 ||
+		    n->key.p[len] != '\0' || n->val.p == NULL)
+			continue;
+		if (*deftype & ROFFDEF_REN) {
+			*deftype = ROFFDEF_REN;
+			return n->val.p;
+		} else {
+			found = 1;
+			break;
+		}
+	}
+	for (i = 0; i < PREDEFS_MAX; i++) {
+		if (strncmp(name, predefs[i].name, len) != 0 ||
+		    predefs[i].name[len] != '\0')
+			continue;
+		if (*deftype & ROFFDEF_PRE) {
+			*deftype = ROFFDEF_PRE;
+			return predefs[i].str;
+		} else {
+			found = 1;
+			break;
+		}
+	}
+	if (r->man->meta.macroset != MACROSET_MAN) {
+		for (tok = MDOC_Dd; tok < MDOC_MAX; tok++) {
+			if (strncmp(name, roff_name[tok], len) != 0 ||
+			    roff_name[tok][len] != '\0')
+				continue;
+			if (*deftype & ROFFDEF_STD) {
+				*deftype = ROFFDEF_STD;
+				return NULL;
+			} else {
+				found = 1;
+				break;
+			}
+		}
+	}
+	if (r->man->meta.macroset != MACROSET_MDOC) {
+		for (tok = MAN_TH; tok < MAN_MAX; tok++) {
+			if (strncmp(name, roff_name[tok], len) != 0 ||
+			    roff_name[tok][len] != '\0')
+				continue;
+			if (*deftype & ROFFDEF_STD) {
+				*deftype = ROFFDEF_STD;
+				return NULL;
+			} else {
+				found = 1;
+				break;
+			}
+		}
+	}
+
+	if (found == 0 && *deftype != ROFFDEF_ANY) {
+		if (*deftype & ROFFDEF_REN) {
+			/*
+			 * This might still be a request,
+			 * so do not treat it as undefined yet.
+			 */
+			*deftype = ROFFDEF_UNDEF;
+			return NULL;
+		}
+
+		/* Using an undefined string defines it to be empty. */
+
+//		roff_setstrn(&r->strtab, name, len, "", 0, 0);
+		roff_setstrn2(r->strtab2, name, len, "", 0, 0);
+//		roff_setstrn(&r->rentab, name, len, NULL, 0, 0);
+	}
+
+	*deftype = 0;
+	return NULL;
+}
+
+static const char *
+roff_getstrn(struct roff *r, const char *name, size_t len,
+	     int *deftype)
+{
+//	int deftypex = *deftype;
+//	int deftype2 = *deftype;
+//	const char *old = roff_getstrn_old(r, name, len, deftype);
+//	const char *new = roff_getstrn_new(r, name, len, &deftype2);
+//	if (old == NULL)
+//		old = "";
+//	if (new == NULL)
+//		new = "";
+//	if (strcmp(old, new) != 0) {
+//		printf("old and new mismatch \"%s\" vs. \"%s\"\n", old, new);
+//		new = roff_getstrn_new(r, name, len, &deftypex);
+//	}
+//	return old;
+	return roff_getstrn_new(r, name, len, deftype);
 }
 
 static void
@@ -4261,6 +4565,19 @@ roff_freestr(struct roffkv *r)
 		nn = n->next;
 		free(n);
 	}
+}
+
+static void
+roff_freestr2(struct roffkv2 *n)
+{
+//	struct roffkv	 *n, *nn;
+//
+//	for (n = r; n; n = nn) {
+//	free(n->key.p);
+	free(n->val.p);
+//	nn = n->next;
+	free(n);
+//	}
 }
 
 /* --- accessors and utility functions ------------------------------------ */
