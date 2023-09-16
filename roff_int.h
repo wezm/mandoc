@@ -83,6 +83,7 @@ struct ohash	 *roffhash_alloc(enum roff_tok, enum roff_tok);
 enum roff_tok	  roffhash_find(struct ohash *, const char *, size_t);
 void		  roffhash_free(struct ohash *);
 
+struct ohash	 *pretab_alloc(void);
 struct ohash	 *roffkvhash_alloc(void);
 struct roffkv2	*	  roffkvhash_find(struct ohash *, const char *, size_t);
 void roffkvhash_insert(struct ohash *, struct roffkv2 *);
