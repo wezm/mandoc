@@ -111,7 +111,6 @@ struct	roff {
 	struct ohash	*reqtab; /* request lookup table */
 	struct ohash	*pretab; /* predefined strings table */
 	struct roffreg	*regtab; /* number registers */
-	struct roffkv	*strtab; /* user-defined strings & macros */
 	struct ohash	*strtab2; /* user-defined strings & macros */
 	struct ohash	*rentab; /* renamed strings & macros */
 	struct roffkv	*xmbtab; /* multi-byte trans table (`tr') */
@@ -843,11 +842,10 @@ roff_free1(struct roff *r)
 	roff_freereg(r->regtab);
 	r->regtab = NULL;
 
-	roff_freestr(r->strtab);
 	roffkvhash_free(r->strtab2);
 	roffkvhash_free(r->rentab);
 	roff_freestr(r->xmbtab);
-	r->strtab = r->xmbtab = NULL;
+	r->xmbtab = NULL;
 	r->strtab2 = r->rentab = NULL;
 
 	if (r->xtab)
