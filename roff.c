@@ -113,6 +113,7 @@ struct	roff {
 	struct mctx	*mstack; /* stack of macro contexts */
 	int		*rstack; /* stack of inverted `ie' values */
 	struct ohash	*reqtab; /* request lookup table */
+	struct ohash	*pretab; /* predefined strings table */
 	struct roffreg	*regtab; /* number registers */
 	struct ohash	*strtab; /* user-defined strings & macros */
 	struct ohash	*rentab; /* renamed strings & macros */
@@ -241,6 +242,7 @@ static	int		 roff_parse_comment(struct roff *, struct buf *,
 				int, int, char);
 static	int		 roff_parsetext(struct roff *, struct buf *,
 				int, int *);
+static	struct ohash	*roff_pretab_alloc(void);
 static	int		 roff_renamed(ROFF_ARGS);
 static	int		 roff_req_or_macro(ROFF_ARGS);
 static	int		 roff_return(ROFF_ARGS);
@@ -701,6 +703,21 @@ roffhash_find(struct ohash *htab, const char *name, size_t sz)
 /* --- key-value table ---------------------------------------------------- */
 
 struct ohash *
+roff_pretab_alloc(void)
+{
+	int i;
+	struct ohash *htab;
+	struct predef pre;
+
+	htab = roff_strhash_alloc();
+	for (i = 0; i < PREDEFS_MAX; i++) {
+		pre = predefs[i];
+		roff_setentry(htab, pre.name, strlen(pre.name), pre.str, strlen(pre.str), 0);
+	}
+	return htab;
+}
+
+struct ohash *
 roff_strhash_alloc(void)
 {
 	struct ohash	*htab;
@@ -852,6 +869,7 @@ roff_free(struct roff *r)
 	int		 i;
 
 	roff_free1(r);
+	roff_strhash_free(r->pretab);
 	for (i = 0; i < r->mstacksz; i++)
 		free(r->mstack[i].argv);
 	free(r->mstack);
@@ -866,6 +884,7 @@ roff_alloc(int options)
 
 	r = mandoc_calloc(1, sizeof(struct roff));
 	r->reqtab = roffhash_alloc(0, ROFF_RENAMED);
+	r->pretab = roff_pretab_alloc();
 	r->strtab = roff_strhash_alloc();
 	r->rentab = roff_strhash_alloc();
 	r->options = options | MPARSE_COMMENT;
@@ -4318,8 +4337,8 @@ static const char *
 roff_getstrn(struct roff *r, const char *name, size_t len,
     int *deftype)
 {
-	int			 found, i;
 	const struct roff_entry	*entry;
+	int			 found;
 	enum roff_tok		 tok;
 
 	found = 0;
@@ -4341,16 +4360,13 @@ roff_getstrn(struct roff *r, const char *name, size_t len,
 			found = 1;
 		}
 	}
-	for (i = 0; i < PREDEFS_MAX; i++) {
-		if (strncmp(name, predefs[i].name, len) != 0 ||
-		    predefs[i].name[len] != '\0')
-			continue;
+	entry = roff_strhash_find(r->pretab, name, len);
+	if (entry != NULL) {
 		if (*deftype & ROFFDEF_PRE) {
 			*deftype = ROFFDEF_PRE;
-			return predefs[i].str;
+			return entry->val.p;
 		} else {
 			found = 1;
-			break;
 		}
 	}
 	if (r->man->meta.macroset != MACROSET_MAN) {
