@@ -242,6 +242,7 @@ static	int		 roff_parse_comment(struct roff *, struct buf *,
 				int, int, char);
 static	int		 roff_parsetext(struct roff *, struct buf *,
 				int, int *);
+static	struct ohash	*roff_pretab_alloc(void);
 static	int		 roff_renamed(ROFF_ARGS);
 static	int		 roff_req_or_macro(ROFF_ARGS);
 static	int		 roff_return(ROFF_ARGS);
@@ -701,7 +702,7 @@ roffhash_find(struct ohash *htab, const char *name, size_t sz)
 /* --- key-value table ---------------------------------------------------- */
 
 struct ohash *
-pretab_alloc(void)
+roff_pretab_alloc(void)
 {
 	int i;
 	struct ohash *htab;
@@ -882,7 +883,7 @@ roff_alloc(int options)
 
 	r = mandoc_calloc(1, sizeof(struct roff));
 	r->reqtab = roffhash_alloc(0, ROFF_RENAMED);
-	r->pretab = pretab_alloc();
+	r->pretab = roff_pretab_alloc();
 	r->strtab = roff_strhash_alloc();
 	r->rentab = roff_strhash_alloc();
 	r->options = options | MPARSE_COMMENT;
