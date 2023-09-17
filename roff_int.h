@@ -85,8 +85,8 @@ void		  roffhash_free(struct ohash *);
 
 struct ohash	 *pretab_alloc(void);
 struct ohash	 *roff_strhash_alloc(void);
-struct roff_entry	*	  roff_strhash_find(struct ohash *htab, const char *name, size_t sz);
-void roff_strhash_insert(struct ohash *htab, struct roff_entry *entry);
+struct roff_entry*roff_strhash_find(struct ohash *htab, const char *name, size_t sz);
+void		  roff_strhash_insert(struct ohash *htab, struct roff_entry *entry);
 void		  roff_strhash_free(struct ohash *htab);
 
 enum mandoc_esc	  roff_escape(const char *, const int, const int,

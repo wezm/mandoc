@@ -75,8 +75,8 @@ struct	roffkv {
  * A key-value string pair used as an entry in an ohash.
  */
 struct	roff_entry {
-    struct roffstr	 val;
-    char	 key[];
+	struct roffstr	 val;
+	char		 key[];
 };
 
 /*
@@ -630,7 +630,6 @@ static	struct roffmac	 roffs[TOKEN_NONE] = {
 	{ roff_userdef, NULL, NULL, 0 }
 };
 
-
 /* Array of injected predefined strings. */
 #define	PREDEFS_MAX	 38
 static	const struct predef predefs[PREDEFS_MAX] = {
@@ -641,6 +640,7 @@ static	int	 roffce_lines;	/* number of input lines to center */
 static	struct roff_node *roffce_node;  /* active request */
 static	int	 roffit_lines;  /* number of lines to delay */
 static	char	*roffit_macro;  /* nil-terminated macro line */
+
 
 /* --- request table ------------------------------------------------------ */
 
@@ -2257,7 +2257,7 @@ roff_block(ROFF_ARGS)
 		switch (deftype) {  /* Before appending, ... */
 		case ROFFDEF_PRE: /* copy predefined to user-defined. */
 			roff_setentry(r->strtab, name, namesz,
-				      value, strlen(value), 0);
+			    value, strlen(value), 0);
 			break;
 		case ROFFDEF_REN: /* call original standard macro. */
 			csz = mandoc_asprintf(&call, ".%.*s \\$* \\\"\n",
@@ -2268,7 +2268,7 @@ roff_block(ROFF_ARGS)
 			break;
 		case ROFFDEF_STD:  /* rename and call standard macro. */
 			rsz = mandoc_asprintf(&rname, "__%s_renamed", name);
-				roff_setentry(r->rentab, rname, rsz, name, namesz, 0);
+			roff_setentry(r->rentab, rname, rsz, name, namesz, 0);
 			csz = mandoc_asprintf(&call, ".%.*s \\$* \\\"\n",
 			    (int)rsz, rname);
 			roff_setentry(r->strtab, name, namesz, call, csz, 0);
@@ -4241,90 +4241,77 @@ roff_setstrn(struct roffkv **r, const char *name, size_t namesz,
 
 static void
 roff_setentry(struct ohash *r, const char *name, size_t namesz,
-	      const char *string, size_t stringsz, int append)
+		const char *string, size_t stringsz, int append)
 {
-    struct roff_entry	*n;
-    char		*c;
-    int		 i;
-    size_t		 oldch, newch;
+	struct roff_entry	*entry;
+	char			*c;
+	int			 i;
+	size_t			 oldch, newch;
 
-    /* Search for an existing string with the same name. */
-//    n = *r;
-//
-//    while (n && (namesz != n->key.sz ||
-//                 strncmp(n->key.p, name, namesz)))
-//        n = n->next;
-    n = roff_strhash_find(r, name, namesz);
+	/* Search for an existing string with the same name. */
+	entry = roff_strhash_find(r, name, namesz);
+	if (NULL == entry) {
+		/* Create a new string table entry. */
+		entry = mandoc_malloc(sizeof(*entry) + namesz + 1);
+		memcpy(entry->key, name, namesz);
+		entry->key[namesz] = '\0';
 
-    if (NULL == n) {
-        /* Create a new string table entry. */
-//	sz = strlen(roff_name[tok]);
-	n = mandoc_malloc(sizeof(*n) + namesz + 1);
-//	req->tok = tok;
-	memcpy(n->key, name, namesz);
-	n->key[namesz] = '\0';
+		entry->val.p = NULL;
+		entry->val.sz = 0;
+		roff_strhash_insert(r, entry);
+	} else if (0 == append) {
+		/* string is already in hash table, free it in
+		 * preparation for updating.
+		 */
+		free(entry->val.p);
+		entry->val.p = NULL;
+		entry->val.sz = 0;
+	}
 
-//        n = mandoc_malloc(sizeof(struct roffkv));
-//        n->key.p = mandoc_strndup(name, namesz);
-//        n->key.sz = namesz;
-        n->val.p = NULL;
-        n->val.sz = 0;
-//        n->next = NULL;
-	    roff_strhash_insert(r, n);
-//        *r = n;
-    } else if (0 == append) {
-        /* string is already in hash table, free it in
-         * preparation for updating.
-         */
-        free(n->val.p);
-        n->val.p = NULL;
-        n->val.sz = 0;
-    }
+	if (NULL == string)
+		return;
 
-    if (NULL == string)
-        return;
+	/*
+	 * One additional byte for the '\n' in multiline mode,
+	 * and one for the terminating '\0'.
+	 */
+	newch = stringsz + (1 < append ? 2u : 1u);
 
-    /*
-     * One additional byte for the '\n' in multiline mode,
-     * and one for the terminating '\0'.
-     */
-    newch = stringsz + (1 < append ? 2u : 1u);
+	if (NULL == entry->val.p) {
+		entry->val.p = mandoc_malloc(newch);
+		*entry->val.p = '\0';
+		oldch = 0;
+	} else {
+		oldch = entry->val.sz;
+		entry->val.p = mandoc_realloc(entry->val.p, oldch + newch);
+	}
 
-    if (NULL == n->val.p) {
-        n->val.p = mandoc_malloc(newch);
-        *n->val.p = '\0';
-        oldch = 0;
-    } else {
-        oldch = n->val.sz;
-        n->val.p = mandoc_realloc(n->val.p, oldch + newch);
-    }
+	/* Skip existing content in the destination buffer. */
+	c = entry->val.p + (int)oldch;
 
-    /* Skip existing content in the destination buffer. */
-    c = n->val.p + (int)oldch;
+	/* Append new content to the destination buffer. */
+	i = 0;
+	while (i < (int)stringsz) {
+		/*
+		 * Rudimentary roff copy mode:
+		 * Handle escaped backslashes.
+		 */
+		if ('\\' == string[i] && '\\' == string[i + 1])
+			i++;
+		*c++ = string[i++];
+	}
 
-    /* Append new content to the destination buffer. */
-    i = 0;
-    while (i < (int)stringsz) {
-        /*
-         * Rudimentary roff copy mode:
-         * Handle escaped backslashes.
-         */
-        if ('\\' == string[i] && '\\' == string[i + 1])
-            i++;
-        *c++ = string[i++];
-    }
+	/* Append terminating bytes. */
+	if (1 < append)
+		*c++ = '\n';
 
-    /* Append terminating bytes. */
-    if (1 < append)
-        *c++ = '\n';
-
-    *c = '\0';
-    n->val.sz = (int)(c - n->val.p);
+	*c = '\0';
+	entry->val.sz = (int)(c - entry->val.p);
 }
 
 static const char *
 roff_getstrn(struct roff *r, const char *name, size_t len,
-		 int *deftype)
+	     int *deftype)
 {
 	const struct roff_entry	*entry;
 	int			 found;
