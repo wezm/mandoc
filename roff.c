@@ -114,8 +114,8 @@ struct	roff {
 	int		*rstack; /* stack of inverted `ie' values */
 	struct ohash	*reqtab; /* request lookup table */
 	struct roffreg	*regtab; /* number registers */
-	struct roffkv	*rentab; /* renamed strings & macros */
 	struct ohash	*strtab; /* user-defined strings & macros */
+	struct ohash	*rentab; /* renamed strings & macros */
 	struct roffkv	*xmbtab; /* multi-byte trans table (`tr') */
 	struct roffstr	*xtab; /* single-byte trans table (`tr') */
 	const char	*current_string; /* value of last called user macro */
@@ -818,10 +818,10 @@ roff_free1(struct roff *r)
 	r->regtab = NULL;
 
 	roff_strhash_free(r->strtab);
-	roff_freestr(r->rentab);
+	roff_strhash_free(r->rentab);
 	roff_freestr(r->xmbtab);
-	r->strtab = NULL;
-	r->rentab = r->xmbtab = NULL;
+	r->strtab = r->rentab = NULL;
+	r->xmbtab = NULL;
 
 	if (r->xtab)
 		for (i = 0; i < 128; i++)
@@ -835,6 +835,7 @@ roff_reset(struct roff *r)
 {
 	roff_free1(r);
 	r->strtab = roff_strhash_alloc();
+	r->rentab = roff_strhash_alloc();
 	r->options |= MPARSE_COMMENT;
 	r->format = r->options & (MPARSE_MDOC | MPARSE_MAN);
 	r->control = '\0';
@@ -866,6 +867,7 @@ roff_alloc(int options)
 	r = mandoc_calloc(1, sizeof(struct roff));
 	r->reqtab = roffhash_alloc(0, ROFF_RENAMED);
 	r->strtab = roff_strhash_alloc();
+	r->rentab = roff_strhash_alloc();
 	r->options = options | MPARSE_COMMENT;
 	r->format = options & (MPARSE_MDOC | MPARSE_MAN);
 	r->mstackpos = -1;
@@ -2084,8 +2086,8 @@ roff_parse(struct roff *r, char *buf, int *pos, int ln, int ppos)
 		*pos = cp - buf;
 	else if (deftype == ROFFDEF_UNDEF) {
 		/* Using an undefined macro defines it to be empty. */
-		roff_setstrn(&r->rentab, mac, maclen, NULL, 0, 0);
 		roff_setentry(r->strtab, mac, maclen, "", 0, 0);
+		roff_setentry(r->rentab, mac, maclen, NULL, 0, 0);
 	}
 	return t;
 }
@@ -2252,8 +2254,8 @@ roff_block(ROFF_ARGS)
 	 */
 
 	if (tok == ROFF_de || tok == ROFF_dei) {
-		roff_setstrn(&r->rentab, name, namesz, NULL, 0, 0);
 		roff_setentry(r->strtab, name, namesz, "", 0, 0);
+		roff_setentry(r->rentab, name, namesz, NULL, 0, 0);
 	} else if (tok == ROFF_am || tok == ROFF_ami) {
 		deftype = ROFFDEF_ANY;
 		value = roff_getstrn(r, iname, namesz, &deftype);
@@ -2265,13 +2267,13 @@ roff_block(ROFF_ARGS)
 		case ROFFDEF_REN: /* call original standard macro. */
 			csz = mandoc_asprintf(&call, ".%.*s \\$* \\\"\n",
 			    (int)strlen(value), value);
-			roff_setstrn(&r->rentab, name, namesz, NULL, 0, 0);
 			roff_setentry(r->strtab, name, namesz, call, csz, 0);
+			roff_setentry(r->rentab, name, namesz, NULL, 0, 0);
 			free(call);
 			break;
 		case ROFFDEF_STD:  /* rename and call standard macro. */
 			rsz = mandoc_asprintf(&rname, "__%s_renamed", name);
-			roff_setstrn(&r->rentab, rname, rsz, name, namesz, 0);
+			roff_setentry(r->rentab, rname, rsz, name, namesz, 0);
 			csz = mandoc_asprintf(&call, ".%.*s \\$* \\\"\n",
 			    (int)rsz, rname);
 			roff_setentry(r->strtab, name, namesz, call, csz, 0);
@@ -2852,7 +2854,7 @@ roff_ds(ROFF_ARGS)
 	/* The rest is the value. */
 	roff_setentry(r->strtab, name, namesz, string, strlen(string),
 	    ROFF_as == tok);
-	roff_setstrn(&r->rentab, name, namesz, NULL, 0, 0);
+	roff_setentry(r->rentab, name, namesz, NULL, 0, 0);
 	return ROFF_IGN;
 }
 
@@ -3281,8 +3283,8 @@ roff_rm(ROFF_ARGS)
 	while (*cp != '\0') {
 		name = cp;
 		namesz = roff_getname(r, &cp, ln, (int)(cp - buf->buf));
-		roff_setstrn(&r->rentab, name, namesz, NULL, 0, 0);
 		roff_setentry(r->strtab, name, namesz, NULL, 0, 0);
+		roff_setentry(r->rentab, name, namesz, NULL, 0, 0);
 		if (name[namesz] == '\\' || name[namesz] == '\t')
 			break;
 	}
@@ -3628,8 +3630,8 @@ roff_als(ROFF_ARGS)
 
 	valsz = mandoc_asprintf(&value, ".%.*s \\$@\\\"\n",
 	    (int)oldsz, oldn);
-	roff_setstrn(&r->rentab, newn, newsz, NULL, 0, 0);
 	roff_setentry(r->strtab, newn, newsz, value, valsz, 0);
+	roff_setentry(r->rentab, newn, newsz, NULL, 0, 0);
 	free(value);
 	return ROFF_IGN;
 }
@@ -3912,26 +3914,26 @@ roff_rn(ROFF_ARGS)
 	value = roff_getstrn(r, oldn, oldsz, &deftype);
 	switch (deftype) {
 	case ROFFDEF_USER:
-		roff_setstrn(&r->rentab, newn, newsz, NULL, 0, 0);
 		roff_setentry(r->strtab, newn, newsz, value, strlen(value), 0);
 		roff_setentry(r->strtab, oldn, oldsz, NULL, 0, 0);
+		roff_setentry(r->rentab, newn, newsz, NULL, 0, 0);
 		break;
 	case ROFFDEF_PRE:
-		roff_setstrn(&r->rentab, newn, newsz, NULL, 0, 0);
 		roff_setentry(r->strtab, newn, newsz, value, strlen(value), 0);
+		roff_setentry(r->rentab, newn, newsz, NULL, 0, 0);
 		break;
 	case ROFFDEF_REN:
-		roff_setstrn(&r->rentab, newn, newsz, value, strlen(value), 0);
-		roff_setstrn(&r->rentab, oldn, oldsz, NULL, 0, 0);
+		roff_setentry(r->rentab, newn, newsz, value, strlen(value), 0);
+		roff_setentry(r->rentab, oldn, oldsz, NULL, 0, 0);
 		roff_setentry(r->strtab, newn, newsz, NULL, 0, 0);
 		break;
 	case ROFFDEF_STD:
-		roff_setstrn(&r->rentab, newn, newsz, oldn, oldsz, 0);
+		roff_setentry(r->rentab, newn, newsz, oldn, oldsz, 0);
 		roff_setentry(r->strtab, newn, newsz, NULL, 0, 0);
 		break;
 	default:
-		roff_setstrn(&r->rentab, newn, newsz, NULL, 0, 0);
 		roff_setentry(r->strtab, newn, newsz, NULL, 0, 0);
+		roff_setentry(r->rentab, newn, newsz, NULL, 0, 0);
 		break;
 	}
 	return ROFF_IGN;
@@ -4167,7 +4169,7 @@ roff_setstr(struct roff *r, const char *name, const char *string,
 	namesz = strlen(name);
 	roff_setentry(r->strtab, name, namesz, string,
 	    string ? strlen(string) : 0, append);
-	roff_setstrn(&r->rentab, name, namesz, NULL, 0, 0);
+	roff_setentry(r->rentab, name, namesz, NULL, 0, 0);
 }
 
 static void
@@ -4316,7 +4318,6 @@ static const char *
 roff_getstrn(struct roff *r, const char *name, size_t len,
     int *deftype)
 {
-	const struct roffkv	*n;
 	int			 found, i;
 	const struct roff_entry	*entry;
 	enum roff_tok		 tok;
@@ -4331,16 +4332,13 @@ roff_getstrn(struct roff *r, const char *name, size_t len,
 			found = 1;
 		}
 	}
-	for (n = r->rentab; n != NULL; n = n->next) {
-		if (strncmp(name, n->key.p, len) != 0 ||
-		    n->key.p[len] != '\0' || n->val.p == NULL)
-			continue;
+	entry = roff_strhash_find(r->rentab, name, len);
+	if (entry != NULL && entry->val.p != NULL) {
 		if (*deftype & ROFFDEF_REN) {
 			*deftype = ROFFDEF_REN;
-			return n->val.p;
+			return entry->val.p;
 		} else {
 			found = 1;
-			break;
 		}
 	}
 	for (i = 0; i < PREDEFS_MAX; i++) {
@@ -4396,8 +4394,8 @@ roff_getstrn(struct roff *r, const char *name, size_t len,
 
 		/* Using an undefined string defines it to be empty. */
 
-		roff_setstrn(&r->rentab, name, len, NULL, 0, 0);
 		roff_setentry(r->strtab, name, len, "", 0, 0);
+		roff_setentry(r->rentab, name, len, NULL, 0, 0);
 	}
 
 	*deftype = 0;
