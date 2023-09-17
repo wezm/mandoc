@@ -255,7 +255,7 @@ static	void		 roff_setstr(struct roff *,
 static	void		 roff_setstrn(struct roffkv **, const char *,
 				size_t, const char *, size_t, int);
 static	void		 roff_setentry(struct ohash *r, const char *name,
-						 size_t namesz, const char *string, size_t stringsz, int append);
+				size_t namesz, const char *string, size_t stringsz, int append);
 static	int		 roff_shift(ROFF_ARGS);
 static	int		 roff_so(ROFF_ARGS);
 static	int		 roff_tr(ROFF_ARGS);
@@ -630,6 +630,7 @@ static	struct roffmac	 roffs[TOKEN_NONE] = {
 	{ roff_userdef, NULL, NULL, 0 }
 };
 
+
 /* Array of injected predefined strings. */
 #define	PREDEFS_MAX	 38
 static	const struct predef predefs[PREDEFS_MAX] = {
@@ -717,48 +718,48 @@ pretab_alloc(void)
 struct ohash *
 roff_strhash_alloc(void)
 {
-    struct ohash	*htab;
+	struct ohash	*htab;
 
-    htab = mandoc_malloc(sizeof(*htab));
-    mandoc_ohash_init(htab, 6, offsetof(struct roff_entry, key));
-    return htab;
+	htab = mandoc_malloc(sizeof(*htab));
+	mandoc_ohash_init(htab, 6, offsetof(struct roff_entry, key));
+	return htab;
 }
 
 void
 roff_strhash_free(struct ohash *htab)
 {
-    struct roff_entry	*entry;
-    unsigned int	 slot;
+	struct roff_entry	*entry;
+	unsigned int	 slot;
 
-    if (htab == NULL)
-        return;
-    for (entry = ohash_first(htab, &slot); entry != NULL;
-	 entry = ohash_next(htab, &slot))
-	    roff_free_entry(entry);
-    ohash_delete(htab);
-    free(htab);
+	if (htab == NULL)
+		return;
+	for (entry = ohash_first(htab, &slot); entry != NULL;
+	     entry = ohash_next(htab, &slot))
+		roff_free_entry(entry);
+	ohash_delete(htab);
+	free(htab);
 }
 
 struct roff_entry	*
 roff_strhash_find(struct ohash *htab, const char *name, size_t sz)
 {
-    struct roff_entry	*entry;
-    const char	*end;
+	struct roff_entry	*entry;
+	const char	*end;
 
-    if (sz) {
-        end = name + sz;
-	    entry = ohash_find(htab, ohash_qlookupi(htab, name, &end));
-    } else
-	    entry = ohash_find(htab, ohash_qlookup(htab, name));
-    return entry;
+	if (sz) {
+		end = name + sz;
+		entry = ohash_find(htab, ohash_qlookupi(htab, name, &end));
+	} else
+		entry = ohash_find(htab, ohash_qlookup(htab, name));
+	return entry;
 }
 
 void
 roff_strhash_insert(struct ohash *htab, struct roff_entry *entry) {
-    unsigned int slot;
+	unsigned int slot;
 
-    slot = ohash_qlookup(htab, entry->key);
-    ohash_insert(htab, slot, entry);
+	slot = ohash_qlookup(htab, entry->key);
+	ohash_insert(htab, slot, entry);
 }
 
 /* --- stack of request blocks -------------------------------------------- */
@@ -1538,7 +1539,6 @@ roff_expand(struct roff *r, struct buf *buf, int ln, int pos, char ec)
 			if (iendarg - iarg == 2 &&
 			    buf->buf[iarg] == '.' &&
 			    buf->buf[iarg + 1] == 'T') {
-//				roff_setstrn(&r->strtab, ".T", 2, NULL, 0, 0);
 				roff_setentry(r->strtab, ".T", 2, NULL, 0, 0);
 				pos = iend;
 				continue;
@@ -2081,7 +2081,6 @@ roff_parse(struct roff *r, char *buf, int *pos, int ln, int ppos)
 		*pos = cp - buf;
 	else if (deftype == ROFFDEF_UNDEF) {
 		/* Using an undefined macro defines it to be empty. */
-//		roff_setstrn(&r->strtab, mac, maclen, "", 0, 0);
 		roff_setentry(r->strtab, mac, maclen, "", 0, 0);
 		roff_setentry(r->rentab, mac, maclen, NULL, 0, 0);
 	}
@@ -2848,8 +2847,6 @@ roff_ds(ROFF_ARGS)
 		string++;
 
 	/* The rest is the value. */
-//	roff_setstrn(&r->strtab, name, namesz, string, strlen(string),
-//	    ROFF_as == tok);
 	roff_setentry(r->strtab, name, namesz, string, strlen(string),
 	    ROFF_as == tok);
 	roff_setentry(r->rentab, name, namesz, NULL, 0, 0);
@@ -3281,7 +3278,6 @@ roff_rm(ROFF_ARGS)
 	while (*cp != '\0') {
 		name = cp;
 		namesz = roff_getname(r, &cp, ln, (int)(cp - buf->buf));
-//		roff_setstrn(&r->strtab, name, namesz, NULL, 0, 0);
 		roff_setentry(r->strtab, name, namesz, NULL, 0, 0);
 		roff_setentry(r->rentab, name, namesz, NULL, 0, 0);
 		if (name[namesz] == '\\' || name[namesz] == '\t')
@@ -3629,7 +3625,6 @@ roff_als(ROFF_ARGS)
 
 	valsz = mandoc_asprintf(&value, ".%.*s \\$@\\\"\n",
 	    (int)oldsz, oldn);
-//	roff_setstrn(&r->strtab, newn, newsz, value, valsz, 0);
 	roff_setentry(r->strtab, newn, newsz, value, valsz, 0);
 	roff_setentry(r->rentab, newn, newsz, NULL, 0, 0);
 	free(value);
